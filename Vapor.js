@@ -1,6 +1,90 @@
 ﻿var Vapor;
 (function (Vapor) {
     /**
+    * A wrapper around the Web Audio API AudioContext object
+    * @class Represents an AudioManager
+    */
+    var AudioManager = (function () {
+        function AudioManager() {
+            this.context = new AudioContext();
+        }
+        return AudioManager;
+    })();
+    Vapor.AudioManager = AudioManager;
+})(Vapor || (Vapor = {}));
+var Vapor;
+(function (Vapor) {
+    /**
+    * A wrapper around the Web AudioSource API AudioBuffer object
+    * @class Represents an AudioManager
+    */
+    var AudioSource = (function () {
+        function AudioSource(manager) {
+            this.loaded = false;
+            this.manager = manager;
+            this.source = manager.context.createBufferSource();
+            this.source.connect(manager.context.destination);
+        }
+        AudioSource.prototype.LoadAudio = function (url, callback) {
+            var _this = this;
+            Vapor.FileDownloader.DownloadArrayBuffer(url, function (request) {
+                _this.manager.context.decodeAudioData(request.response, function (buffer) {
+                    _this.source.buffer = buffer;
+                    _this.loaded = true;
+                    callback(_this);
+                });
+            });
+        };
+
+        AudioSource.prototype.Play = function () {
+            this.source.start(0);
+        };
+
+        AudioSource.FromFile = function (manager, url, callback) {
+            var source = new AudioSource(manager);
+            Vapor.FileDownloader.DownloadArrayBuffer(url, function (request) {
+                source.manager.context.decodeAudioData(request.response, function (buffer) {
+                    source.source.buffer = buffer;
+                    source.loaded = true;
+                    callback(source);
+                });
+            });
+        };
+        return AudioSource;
+    })();
+    Vapor.AudioSource = AudioSource;
+})(Vapor || (Vapor = {}));
+// Type definitions for Web Audio API
+// Project: http://www.w3.org/TR/webaudio/
+// Definitions by: Baruch Berger <https://github.com/bbss>, Kon <http://phyzkit.net/>
+// Definitions: https://github.com/borisyankov/DefinitelyTyped
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+var Vapor;
+(function (Vapor) {
+    /**
     * The base class of all objects in Vapor.
     */
     var VaporObject = (function () {
@@ -116,6 +200,12 @@ var Vapor;
         * Called once per frame.  Put rendering code inside here.
         */
         Component.prototype.Render = function () {
+        };
+
+        /**
+        * Called whenver collisions are detected via the physics engine (Box2D).
+        */
+        Component.prototype.OnCollision = function (contact) {
         };
         return Component;
     })(Vapor.VaporObject);
@@ -385,16 +475,12 @@ var Vapor;
                 this.camera = component;
             } else if (component instanceof Vapor.Renderer) {
                 this.renderer = component;
+            } else if (component instanceof Vapor.RigidBody) {
+                this.rigidbody = component;
+            } else if (component instanceof Vapor.Collider) {
+                this.collider = component;
             }
 
-            //else if (component is Collider)
-            //{
-            //    this.collider = component;
-            //}
-            //else if (component is RigidBody)
-            //{
-            //    this.rigidbody = component;
-            //}
             this.components.push(component);
 
             component.Awake();
@@ -475,12 +561,12 @@ var Vapor;
             }
         };
 
-        //OnCollision(Box2D.Contact contact)
-        //{
-        //    for (var i = 0; i < this.components.length; i++) {
-        //        this.components[i].OnCollision(contact);
-        //    }
-        //}
+        GameObject.prototype.OnCollision = function (contact) {
+            for (var i = 0; i < this.components.length; i++) {
+                this.components[i].OnCollision(contact);
+            }
+        };
+
         // ------ Static Creation Methods -------------------------------------------
         /**
         * Creates a GameObject with a Camera Behavior already attached.
@@ -595,7 +681,8 @@ var Vapor;
             this.canvas = canvas;
             this.gravity = gravity;
 
-            //world = new Box2D.World(_gravity, true, new Box2D.DefaultWorldPool());
+            this.world = new Box2D.Dynamics.b2World(new Box2D.Common.Math.b2Vec2(gravity.X, gravity.Y), true);
+
             // Tell the browser to call the Update method
             window.requestAnimationFrame(this.Update.bind(this));
 
@@ -650,7 +737,7 @@ var Vapor;
         */
         Scene.prototype.Clear = function () {
             this.gameObjects.length = 0;
-            //world = new Box2D.World(gravity, true, new Box2D.DefaultWorldPool());
+            this.world = new Box2D.Dynamics.b2World(new Box2D.Common.Math.b2Vec2(this.gravity.X, this.gravity.Y), true);
         };
 
         /**
@@ -659,6 +746,9 @@ var Vapor;
         Scene.prototype.Update = function (time) {
             if (!this.paused) {
                 Vapor.Time.Update();
+
+                this.world.Step(1 / 60, 10, 10);
+                this.world.ClearForces();
 
                 for (var i = 0; i < this.gameObjects.length; i++) {
                     this.gameObjects[i].Update();
@@ -1518,14 +1608,14 @@ var Vapor;
         * @param {string} filepath The filepath of the shader to load.
         * @returns {Vapor.Shader} The newly created Shader.
         */
-        Shader.FromFile = function (filepath) {
+        Shader.FromFile = function (filepath, callback) {
             console.log("Loading shader = " + filepath.substring(filepath.lastIndexOf("/") + 1));
 
-            var request = Vapor.FileDownloader.Download(filepath);
-
-            var shader = Shader.FromSource(request.responseText, filepath);
-            shader.filepath = filepath;
-            return shader;
+            Vapor.FileDownloader.Download(filepath, function (request) {
+                var shader = Shader.FromSource(request.responseText, filepath);
+                shader.filepath = filepath;
+                callback(shader);
+            });
         };
 
         /**
@@ -1605,13 +1695,11 @@ var Vapor;
         * @private
         * Process the shader source and pull in the include code
         */
+        //private static PreprocessSource(shaderSource: string, filepath: string, callback: (sourceCode: string) => any): string {
         Shader.PreprocessSource = function (shaderSource, filepath) {
             console.log("Preprocessing shader source...");
 
-            var relativePath = "";
-            if (filepath) {
-                relativePath = filepath.substring(0, filepath.lastIndexOf("/") + 1);
-            }
+            var relativePath = filepath.substring(0, filepath.lastIndexOf("/") + 1);
 
             // \s* = any whitespace before the #include (0 or more spaces)
             // #include = #include
@@ -1636,16 +1724,15 @@ var Vapor;
 
                     console.log("Including shader = " + includeFile);
 
-                    var request = Vapor.FileDownloader.Download(relativePath + includeFile);
-
-                    if (request.status != 200)
-                        console.log("Could not load shader include! " + includeFile);
+                    var request = Vapor.FileDownloader.DownloadSynchronous(relativePath + includeFile);
 
                     shaderSource = shaderSource.replace(matches[i], request.responseText + "\n");
+                    //FileDownloader.Download(relativePath + includeFile, (request: XMLHttpRequest) => {
+                    //    shaderSource = shaderSource.replace(matches[i], request.response + "\n");
+                    //});
                 }
             }
 
-            //console.log(shaderSource);
             return shaderSource;
         };
 
@@ -1874,6 +1961,18 @@ var Vapor;
             },
             set: function (value) {
                 this.data[2] = value;
+            },
+            enumerable: true,
+            configurable: true
+        });
+
+        Object.defineProperty(Vector3.prototype, "XY", {
+            get: function () {
+                return new Vapor.Vector2(this.data[0], this.data[1]);
+            },
+            set: function (value) {
+                this.data[0] = value.X;
+                this.data[1] = value.Y;
             },
             enumerable: true,
             configurable: true
@@ -3073,6 +3172,282 @@ var Vapor;
     })();
     Vapor.Vector2 = Vector2;
 })(Vapor || (Vapor = {}));
+/**
+* Box2DWeb-2.1.d.ts Copyright (c) 2012-2013 Josh Baldwin http://github.com/jbaldwin/box2dweb.d.ts
+* There are a few competing javascript Box2D ports.
+* This definitions file is for Box2dWeb.js ->
+*   http://code.google.com/p/box2dweb/
+*
+* Box2D C++ Copyright (c) 2006-2007 Erin Catto http://www.gphysics.com
+*
+* This software is provided 'as-is', without any express or implied
+* warranty.  In no event will the authors be held liable for any damages
+* arising from the use of this software.
+* Permission is granted to anyone to use this software for any purpose,
+* including commercial applications, and to alter it and redistribute it
+* freely, subject to the following restrictions:
+* 1. The origin of this software must not be misrepresented; you must not
+*    claim that you wrote the original software. If you use this software
+*    in a product, an acknowledgment in the product documentation would be
+*    appreciated but is not required.
+* 2. Altered source versions must be plainly marked as such, and must not be
+*    misrepresented as being the original software.
+* 3. This notice may not be removed or altered from any source distribution.
+**/
+var Vapor;
+(function (Vapor) {
+    /**
+    * Represents a collider for use with the Box2D physics engine.
+    * The base class for all Collider objects.
+    */
+    var Collider = (function (_super) {
+        __extends(Collider, _super);
+        function Collider() {
+            _super.apply(this, arguments);
+            /**
+            * True if the body associated with this Collider is used as a Box2D sensor.
+            * Defaults to false.
+            */
+            this.isSensor = false;
+        }
+        Object.defineProperty(Collider.prototype, "FixtureDefinition", {
+            /**
+            * The FixtureDef that was used to create this collider.
+            */
+            get: function () {
+                return this.fixtureDef;
+            },
+            enumerable: true,
+            configurable: true
+        });
+
+        Collider.prototype.Start = function () {
+            // first just set to the rigid body attached to this object
+            this.attachedRigidbody = this.gameObject.rigidbody;
+
+            // next try to find a rigid body on the parents
+            var parent = this.gameObject.parent;
+            while (parent != null) {
+                console.log("Parent = " + parent.Name);
+
+                if (parent.rigidbody != null) {
+                    this.attachedRigidbody = parent.rigidbody;
+                }
+
+                parent = parent.parent;
+            }
+
+            if (this.attachedRigidbody == null) {
+                console.error("You must first attach a RigidBody component.");
+            }
+        };
+        return Collider;
+    })(Vapor.Component);
+    Vapor.Collider = Collider;
+})(Vapor || (Vapor = {}));
+/// <reference path="Collider.ts" />
+var Vapor;
+(function (Vapor) {
+    /**
+    * Represents a collider that is a box shape.
+    */
+    var BoxCollider = (function (_super) {
+        __extends(BoxCollider, _super);
+        function BoxCollider() {
+            _super.apply(this, arguments);
+            this.center = new Vapor.Vector2(0.0, 0.0);
+            this.size = new Vapor.Vector2(1.0, 1.0);
+        }
+        BoxCollider.prototype.Awake = function () {
+            var shape = new Box2D.Collision.Shapes.b2PolygonShape();
+            var center = new Box2D.Common.Math.b2Vec2(this.center.X, this.center.Y);
+            shape.SetAsOrientedBox(this.size.X / 2, this.size.Y / 2, center, 0.0);
+
+            this.fixtureDef = new Box2D.Dynamics.b2FixtureDef();
+            this.fixtureDef.restitution = 0.5;
+            this.fixtureDef.density = 0.05;
+
+            //this.fixtureDef.friction = 0.1;
+            this.fixtureDef.shape = shape;
+            this.fixtureDef.isSensor = this.isSensor;
+        };
+
+        BoxCollider.prototype.Start = function () {
+            _super.prototype.Start.call(this);
+
+            this.fixture = this.attachedRigidbody.body.CreateFixture(this.fixtureDef);
+        };
+
+        BoxCollider.prototype.Update = function () {
+            var polygon = this.fixture.GetShape();
+            ;
+
+            //var pos = Box2D.Transform.mul(attachedRigidbody.body.originTransform, polygon.centroid);
+            // TODO: Figure out how to ge the position of the box
+            //var pos = Box2D.Common.Math.b2Math.MulX(this.attachedRigidbody.body.GetTransform(), polygon.ComputeAABB().);
+            var pos = this.attachedRigidbody.body.GetPosition();
+
+            this.transform.position = new Vapor.Vector3(pos.x, pos.y, this.transform.position.Z);
+            this.transform.EulerAngles = new Vapor.Vector3(this.transform.EulerAngles.X, this.transform.EulerAngles.Y, this.attachedRigidbody.body.GetAngle());
+        };
+        return BoxCollider;
+    })(Vapor.Collider);
+    Vapor.BoxCollider = BoxCollider;
+})(Vapor || (Vapor = {}));
+var Vapor;
+(function (Vapor) {
+    /**
+    *
+    */
+    var CircleCollider = (function (_super) {
+        __extends(CircleCollider, _super);
+        function CircleCollider(radius) {
+            if (typeof radius === "undefined") { radius = 1.0; }
+            _super.call(this, "CircleCollider");
+            /**
+            * Does nothing since there is no way to set the center point of a Circle fixture.
+            * I belive this is a bug with the Dart port of Box2D.
+            */
+            this.center = new Vapor.Vector2(0.0, 0.0);
+            this.radius = 1.0;
+            this.radius = radius;
+        }
+        CircleCollider.prototype.Awake = function () {
+            var shape = new Box2D.Collision.Shapes.b2CircleShape();
+
+            //shape.SetLocalPosition(this.center);
+            shape.SetRadius(this.radius);
+
+            this.fixtureDef = new Box2D.Dynamics.b2FixtureDef();
+            this.fixtureDef.restitution = 0.5;
+            this.fixtureDef.density = 0.05;
+
+            //this.fixtureDef.friction = 0.1;
+            this.fixtureDef.shape = shape;
+            this.fixtureDef.isSensor = this.isSensor;
+        };
+
+        CircleCollider.prototype.Start = function () {
+            _super.prototype.Start.call(this);
+            this.fixture = this.attachedRigidbody.body.CreateFixture(this.fixtureDef);
+        };
+
+        CircleCollider.prototype.Update = function () {
+            var circle = this.fixture.GetShape();
+
+            //var pos = Box2D.Common.Math.b2Transform.mul(this.attachedRigidbody.body.GetTransform(), circle.GetLocalPosition());
+            var pos = Box2D.Common.Math.b2Math.MulX(this.attachedRigidbody.body.GetTransform(), circle.GetLocalPosition());
+
+            this.transform.position = new Vapor.Vector3(pos.x, pos.y, this.transform.position.Z);
+            this.transform.EulerAngles = new Vapor.Vector3(this.transform.EulerAngles.X, this.transform.EulerAngles.Y, this.attachedRigidbody.body.GetAngle());
+
+            //transform.position = new Vector3(gameObject.rigidbody.body.position.x, gameObject.rigidbody.body.position.y, transform.position.z);
+            //transform.eulerAngles = new Vector3(transform.eulerAngles.x, transform.eulerAngles.y, gameObject.rigidbody.body.angle);
+            var contactList = this.attachedRigidbody.body.GetContactList();
+            if (contactList != null && contactList.contact != null) {
+                if (contactList.contact.IsTouching()) {
+                    this.gameObject.OnCollision(contactList.contact);
+                }
+            }
+        };
+        return CircleCollider;
+    })(Vapor.Collider);
+    Vapor.CircleCollider = CircleCollider;
+})(Vapor || (Vapor = {}));
+var Vapor;
+(function (Vapor) {
+    /**
+    *
+    */
+    var RevoluteJoint = (function (_super) {
+        __extends(RevoluteJoint, _super);
+        function RevoluteJoint() {
+            _super.apply(this, arguments);
+            this.radius = 1.0;
+            this.enableMotor = false;
+        }
+        RevoluteJoint.prototype.Awake = function () {
+            this.jointDef = new Box2D.Dynamics.Joints.b2RevoluteJointDef();
+            this.jointDef.enableMotor = this.enableMotor;
+            //_jointDef.initialize(gameObject.rigidbody.body, connectedRigidBody.body, anchor);
+        };
+
+        RevoluteJoint.prototype.Start = function () {
+            var anchor = new Box2D.Common.Math.b2Vec2(this.anchor.X, this.anchor.Y);
+            this.jointDef.Initialize(this.gameObject.rigidbody.body, this.connectedRigidBody.body, anchor);
+            this.revoluteJoint = this.scene.world.CreateJoint(this.jointDef);
+        };
+        return RevoluteJoint;
+    })(Vapor.Component);
+    Vapor.RevoluteJoint = RevoluteJoint;
+})(Vapor || (Vapor = {}));
+var Vapor;
+(function (Vapor) {
+    /**
+    * A body type enum. There are three types of bodies.
+    *
+    * Static: Have zero mass, zero velocity and can be moved manually.
+    *
+    * Kinematic: Have zero mass, a non-zero velocity set by user, and are moved by
+    *   the physics solver.
+    *
+    * Dynamic: Have positive mass, non-zero velocity determined by forces, and is
+    *   moved by the physics solver.
+    */
+    (function (BodyType) {
+        BodyType[BodyType["Static"] = 0] = "Static";
+        BodyType[BodyType["Kinematic"] = 1] = "Kinematic";
+        BodyType[BodyType["Dynamic"] = 2] = "Dynamic";
+    })(Vapor.BodyType || (Vapor.BodyType = {}));
+    var BodyType = Vapor.BodyType;
+
+    /**
+    * Represents a Rigid Body for use with the Box2D physics engine.
+    */
+    var RigidBody = (function (_super) {
+        __extends(RigidBody, _super);
+        /**
+        * Constructs a new RigidBody using the given body type.  Defaults to Box2D.BodyType.DYNAMIC.
+        */
+        function RigidBody(bodyType) {
+            if (typeof bodyType === "undefined") { bodyType = 2 /* Dynamic */; }
+            _super.call(this, "RigidBody");
+            /**
+            * The type of body (Dynamic, Static, or Kinematic) associated with this Collider.
+            * Defaults to Dynamic.
+            * The types are defined in Box2D.BodyType.
+            */
+            this.bodyType = 2 /* Dynamic */;
+            this.bodyType = bodyType;
+        }
+        Object.defineProperty(RigidBody.prototype, "BodyDefinition", {
+            /**
+            * The Box2D.BodyDef that was used to create this Rigid Body.
+            */
+            get: function () {
+                return this.bodyDef;
+            },
+            enumerable: true,
+            configurable: true
+        });
+
+        RigidBody.prototype.Awake = function () {
+            this.bodyDef = new Box2D.Dynamics.b2BodyDef();
+            this.bodyDef.type = this.bodyType;
+            this.bodyDef.position = new Box2D.Common.Math.b2Vec2(this.transform.position.X, this.transform.position.Y);
+        };
+
+        RigidBody.prototype.Start = function () {
+            this.body = this.gameObject.scene.world.CreateBody(this.bodyDef);
+
+            //this.body.SetTransform(transform.position.xy, transform.eulerAngles.z);
+            var position = new Box2D.Common.Math.b2Vec2(this.transform.position.X, this.transform.position.Y);
+            this.body.SetPositionAndAngle(position, this.transform.EulerAngles.Z);
+        };
+        return RigidBody;
+    })(Vapor.Component);
+    Vapor.RigidBody = RigidBody;
+})(Vapor || (Vapor = {}));
 Array.prototype.add = function (item) {
     this.push(item);
 };
@@ -3131,35 +3506,80 @@ var Vapor;
         function FileDownloader() {
         }
         /**
-        * Download the file at the given URL.
-        * It defaults to download sychronously.
-        * You can optionally provide a callback function which forces it to download asychronously.
-        * The callback is in the form: void Callback(ProgressEvent event)
+        * Download the file at the given URL.  It ONLY downloads asynchronously.
+        * (Modern browsers are deprecating synchronous requests, and now throw exceptions when trying to do a sychronous request with a responseType)
+        * The callback is called after the file is done loading.
+        * The callback is in the form: Callback(request: XMLHttpRequest): void
         */
-        FileDownloader.Download = function (url, callback) {
-            var request = new XMLHttpRequest();
+        FileDownloader.Download = function (url, callback, responseType) {
+            if (typeof responseType === "undefined") { responseType = "text"; }
+            try  {
+                var request = new XMLHttpRequest();
 
-            if (callback) {
-                //console.log("Sending asynchronous request");
-                // the callback is defined so send an asynchronous request
                 request.open('GET', url, true);
-                request.onreadystatechange = callback;
+                request.responseType = responseType;
+                request.onload = function () {
+                    if (request.readyState === 4) {
+                        if (request.status === 200) {
+                            callback(request);
+                        } else {
+                            console.error(request.statusText);
+                        }
+                    }
+                };
+                request.onerror = function () {
+                    console.error(request.statusText);
+                };
                 request.send();
-            } else {
-                try  {
-                    request.open("GET", url, false);
-                    request.send();
-                } catch (e) {
-                    // swallow exception?
-                    console.log("Exception caught in FileDownloader.Download()");
-                }
+            } catch (e) {
+                console.log("Exception caught in FileDownloader.Download(): " + e);
+            }
 
-                if (request.status == 200) {
-                    //window.console.log("Successful response");
-                    //window.console.log(this.request.responseText);
-                } else {
-                    console.log("FileDownloader Error! " + request.status.toString() + " " + request.statusText);
-                }
+            return request;
+        };
+
+        /**
+        * Download the file at the given URL as an ArrayBuffer (useful for Audio).
+        */
+        FileDownloader.DownloadArrayBuffer = function (url, callback) {
+            return FileDownloader.Download(url, callback, "arraybuffer");
+        };
+
+        /**
+        * Download the file at the given URL as a Blob (useful for Images).
+        */
+        FileDownloader.DownloadBlob = function (url, callback) {
+            return FileDownloader.Download(url, callback, "blob");
+        };
+
+        /**
+        * Download the file at the given URL as a Document (useful for XML and HTML).
+        */
+        FileDownloader.DownloadDocument = function (url, callback) {
+            return FileDownloader.Download(url, callback, "document");
+        };
+
+        /**
+        * Download the file at the given URL as a JavaScript object parsed from the JSON string returned by the server.
+        */
+        FileDownloader.DownloadJSON = function (url, callback) {
+            return FileDownloader.Download(url, callback, "json");
+        };
+
+        /**
+        * Download the file at the given URL in a synchronous (blocking) manner.
+        */
+        FileDownloader.DownloadSynchronous = function (url) {
+            try  {
+                var request = new XMLHttpRequest();
+                request.open("GET", url, false);
+                request.send();
+            } catch (e) {
+                console.log("Exception caught in FileDownloader.DownloadSynchronous()");
+            }
+
+            if (request.status != 200) {
+                console.log("FileDownloader Error! " + request.status.toString() + " " + request.statusText);
             }
 
             return request;
@@ -3225,6 +3645,9 @@ var Vapor;
     })();
     Vapor.Time = Time;
 })(Vapor || (Vapor = {}));
+/// <reference path="Audio/AudioManager.ts" />
+/// <reference path="Audio/AudioSource.ts" />
+/// <reference path="Audio/waa.ts" />
 /// <reference path="Game/Component.ts" />
 /// <reference path="Game/GameObject.ts" />
 /// <reference path="Game/Scene.ts" />
@@ -3240,10 +3663,13 @@ var Vapor;
 /// <reference path="Graphics/ShaderType.ts" />
 /// <reference path="Graphics/Texture2D.ts" />
 /// <reference path="Input/Keyboard.ts" />
+/// <reference path="Input/KeyCode.ts" />
 /// <reference path="Input/Mouse.ts" />
 /// <reference path="Input/Touch.ts" />
 /// <reference path="Input/TouchData.ts" />
 /// <reference path="Input/TouchPhase.ts" />
+/// <reference path="Math/BoundingBox2D.ts" />
+/// <reference path="Math/BoundingBox3D.ts" />
 /// <reference path="Math/MathHelper.ts" />
 /// <reference path="Math/Matrix.ts" />
 /// <reference path="Math/Quaternion.ts" />
@@ -3251,6 +3677,11 @@ var Vapor;
 /// <reference path="Math/Vector2.ts" />
 /// <reference path="Math/Vector3.ts" />
 /// <reference path="Math/Vector4.ts" />
+/// <reference path="Physics/box2dweb.ts" />
+/// <reference path="Physics/BoxCollider.ts" />
+/// <reference path="Physics/CircleCollider.ts" />
+/// <reference path="Physics/Collider.ts" />
+/// <reference path="Physics/RigidBody.ts" />
 /// <reference path="Utilities/ArrayExtensions.ts" />
 /// <reference path="Utilities/FileDownloader.ts" />
 /// <reference path="Utilities/Time.ts" />
@@ -3260,28 +3691,34 @@ var Vapor;
 var gl;
 
 window.onload = function () {
+    var audioManager = new Vapor.AudioManager();
+    var audioSource = new Vapor.AudioSource.FromFile(audioManager, "Funeral.mp3", function (source) {
+        source.Play();
+    });
+
     var scene = new Vapor.Scene();
 
-    var shader = Vapor.Shader.FromFile("../Shaders/white.glsl");
-    var material = new Vapor.Material(shader);
+    Vapor.Shader.FromFile("Shaders/white.glsl", function (shader) {
+        var material = new Vapor.Material(shader);
 
-    var camera = Vapor.GameObject.CreateCamera();
-    camera.transform.position = new Vapor.Vector3(0.0, 0.0, -7.0);
-    camera.camera.backgroundColor = Vapor.Color.SolidBlack;
-    scene.AddGameObject(camera);
+        var camera = Vapor.GameObject.CreateCamera();
+        camera.transform.position = new Vapor.Vector3(0.0, 0.0, -7.0);
+        camera.camera.backgroundColor = Vapor.Color.SolidBlack;
+        scene.AddGameObject(camera);
 
-    var triangle = Vapor.GameObject.CreateTriangle();
-    triangle.renderer.material = material;
+        var triangle = Vapor.GameObject.CreateTriangle();
+        triangle.renderer.material = material;
 
-    //triangle.transform.position = new Vapor.Vector3(-1.5, 0.0, 7.0);
-    triangle.transform.position = new Vapor.Vector3(-1.5, 0.0, 0.0);
-    scene.AddGameObject(triangle);
+        //triangle.transform.position = new Vapor.Vector3(-1.5, 0.0, 7.0);
+        triangle.transform.position = new Vapor.Vector3(-1.5, 0.0, 0.0);
+        scene.AddGameObject(triangle);
 
-    var paddle1 = Vapor.GameObject.CreateQuad();
+        var paddle1 = Vapor.GameObject.CreateQuad();
 
-    //paddle1.transform.Scale = new Vapor.Vector3(1.0, 2.0, 1.0);
-    paddle1.renderer.material = material;
-    paddle1.transform.position = new Vapor.Vector3(1.5, 0.0, 0.0);
-    scene.AddGameObject(paddle1);
+        //paddle1.transform.Scale = new Vapor.Vector3(1.0, 2.0, 1.0);
+        paddle1.renderer.material = material;
+        paddle1.transform.position = new Vapor.Vector3(1.5, 0.0, 0.0);
+        scene.AddGameObject(paddle1);
+    });
 };
 //# sourceMappingURL=Vapor.js.map
