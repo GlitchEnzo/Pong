@@ -17,8 +17,12 @@
     <IISExpressUseClassicPipelineMode />
   </PropertyGroup>
   <ItemGroup>
+    <Content Include="Box2dWeb-2.1.a.3.js" />
     <Content Include="pong.css" />
     <Content Include="index.html" />
+    <Content Include="Sounds\Blip_Select.wav" />
+    <Content Include="Sounds\Blip_Select2.wav" />
+    <Content Include="Sounds\Blip_Select3.wav" />
     <Content Include="Vapor.js" />
     <Content Include="web.config" />
   </ItemGroup>
