@@ -21,7 +21,26 @@ var Pong;
             this.width = 0.5;
             this.height = 0.5;
         }
-        //Random _random = new Random();
+        Ball.prototype.Awake = function () {
+            var _this = this;
+            console.log("Awake");
+            this.audioManager = new Vapor.AudioManager();
+            Vapor.AudioSource.FromFile(this.audioManager, "Sounds/Blip_Select.wav", function (source) {
+                _this.bounceSound1 = source;
+            });
+            Vapor.AudioSource.FromFile(this.audioManager, "Sounds/Blip_Select2.wav", function (source) {
+                _this.bounceSound2 = source;
+            });
+            Vapor.AudioSource.FromFile(this.audioManager, "Sounds/Blip_Select3.wav", function (source) {
+                _this.bounceSound3 = source;
+            });
+        };
+
+        //public Start() {
+        //    console.log("Start");
+        //    this.audioManager = new Vapor.AudioManager();
+        //    Vapor.AudioSource.FromFile(this.audioManager, "Sounds/Blip_Select.wav", (source) => { console.log("sound loaded"); this.bounceSound1 = source; this.bounceSound1.Play(); });
+        //}
         Ball.prototype.Update = function () {
             var position = this.transform.position;
             position.Add(this.velocity);
@@ -55,6 +74,7 @@ var Pong;
 
             if (this.transform.position.Y - halfHeight <= this.bottomLimit || this.transform.position.Y + halfHeight >= this.topLimit) {
                 this.velocity.Y = -this.velocity.Y;
+                this.bounceSound1.Play();
             }
 
             // check collision with the paddles
@@ -69,6 +89,8 @@ var Pong;
                 this.velocity.X = -this.velocity.X;
 
                 this.paddle1Enabled = false;
+
+                this.bounceSound2.Play();
             } else if (!this.paddle1Enabled && boundingBox.IntersectsBoundingBox(this.paddle2.boundingBox)) {
                 // if the ball is beyond the left most edge of the paddle
                 if (this.transform.position.X >= this.paddle2.transform.position.X - this.paddle2.halfWidth + errorMargin) {
@@ -79,6 +101,8 @@ var Pong;
                 this.velocity.X = -this.velocity.X;
 
                 this.paddle1Enabled = true;
+
+                this.bounceSound3.Play();
             }
         };
         return Ball;

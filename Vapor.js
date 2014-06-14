@@ -22,29 +22,49 @@ var Vapor;
         function AudioSource(manager) {
             this.loaded = false;
             this.manager = manager;
-            this.source = manager.context.createBufferSource();
-            this.source.connect(manager.context.destination);
+            //this.source = manager.context.createBufferSource();
+            //this.source.connect(manager.context.destination);
         }
-        AudioSource.prototype.LoadAudio = function (url, callback) {
-            var _this = this;
-            Vapor.FileDownloader.DownloadArrayBuffer(url, function (request) {
-                _this.manager.context.decodeAudioData(request.response, function (buffer) {
-                    _this.source.buffer = buffer;
-                    _this.loaded = true;
-                    callback(_this);
-                });
-            });
+        //public LoadAudio(url: string, callback: (source: AudioSource) => any) {
+        //    FileDownloader.DownloadArrayBuffer(url, (request) => {
+        //        this.manager.context.decodeAudioData(request.response, (buffer) => {
+        //            this.source.buffer = buffer;
+        //            this.loaded = true;
+        //            callback(this);
+        //        });
+        //    });
+        //}
+        AudioSource.prototype.Play = function (startTime) {
+            if (typeof startTime === "undefined") { startTime = this.pauseTime; }
+            this.source = this.manager.context.createBufferSource();
+            this.source.buffer = this.buffer;
+            this.source.connect(this.manager.context.destination);
+            this.source.start(0, startTime);
+
+            // save the start time
+            this.startTime = performance.now();
         };
 
-        AudioSource.prototype.Play = function () {
-            this.source.start(0);
+        AudioSource.prototype.Pause = function () {
+            this.source.stop(0);
+
+            this.pauseTime = performance.now() - this.startTime;
+        };
+
+        AudioSource.prototype.Stop = function () {
+            this.source.stop(0);
+
+            this.startTime = 0;
+            this.pauseTime = 0;
         };
 
         AudioSource.FromFile = function (manager, url, callback) {
             var source = new AudioSource(manager);
             Vapor.FileDownloader.DownloadArrayBuffer(url, function (request) {
                 source.manager.context.decodeAudioData(request.response, function (buffer) {
-                    source.source.buffer = buffer;
+                    source.buffer = buffer;
+
+                    //source.source.buffer = buffer;
                     source.loaded = true;
                     callback(source);
                 });

@@ -30,9 +30,12 @@ declare module Vapor {
         */
         public manager: AudioManager;
         public loaded: boolean;
+        private startTime;
+        private pauseTime;
         constructor(manager: AudioManager);
-        public LoadAudio(url: string, callback: (source: AudioSource) => any): void;
-        public Play(): void;
+        public Play(startTime?: number): void;
+        public Pause(): void;
+        public Stop(): void;
         static FromFile(manager: AudioManager, url: string, callback: (source: AudioSource) => any): void;
     }
 }
